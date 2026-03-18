@@ -36,7 +36,7 @@ model = AutoModelForCausalLM.from_pretrained(
     quantization_config=bnb_config,
     device_map="auto"
 )
-
+model.config.tie_word_embeddings = False
 tokenizer = AutoTokenizer.from_pretrained(model_name)
 tokenizer.pad_token = tokenizer.eos_token
 
@@ -77,8 +77,7 @@ trainer = SFTTrainer(
     model=model,
     train_dataset=dataset,
     peft_config=peft_config,
-    tokenizer=tokenizer,
-    dataset_text_field="text",
+    processing_class=tokenizer,
     args=training_args,
 )
 
