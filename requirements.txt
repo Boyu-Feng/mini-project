@@ -8,3 +8,4 @@ bitsandbytes>=0.43.0
 sentencepiece
 scipy
 matplotlib
+tqdm
