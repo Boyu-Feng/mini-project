@@ -43,16 +43,17 @@ model = PeftModel.from_pretrained(base_model, "./outputs/oft_model", device_map=
 # 如果你保存了 tokenizer 在 outputs/oft_model，否则改为基础 tokenizer 名称
 tokenizer = AutoTokenizer.from_pretrained("./outputs/oft_model", trust_remote_code=True)
 
-# 简单的生成函数：给定问题返回模型生成的响应文本和最终解析出的数值（如果有）
+# 简单的生成函数：给定问题返回模型生成的完整响应文本和最终解析出的数值（如果有）
 def generate_answer(question, max_new_tokens=128, temperature=0.0):
-    # 添加明确指令：最后一行只输出答案，格式严格为 "#### <数字>"，不要其他文字
+    # Direct English prompt: ask model to think step-by-step and ensure final line is strictly "#### <number>"
     prompt = (
-        f"### Instruction:\n{question}\n\n"
-        "### Response:\n"
-        "Please answer the question step by step if needed, but IMPORTANT: the final line of your response must be ONLY the numeric answer in the following exact format:\n"
+        "You are an assistant. When answering, think step-by-step and show the full reasoning process.\n"
+        "IMPORTANT: The entire model output is considered the answer, and the LAST LINE must be ONLY the numeric answer in the exact format:\n"
         "#### <number>\n"
-        "Do not include any other text after this line.\n"
+        "Do not include any additional text after this line.\n\n"
+        f"Question: {question}\n"
     )
+
     inputs = tokenizer(prompt, return_tensors="pt")
     device = next(model.parameters()).device
     inputs = {k: v.to(device) for k, v in inputs.items()}
@@ -67,12 +68,10 @@ def generate_answer(question, max_new_tokens=128, temperature=0.0):
             pad_token_id=tokenizer.eos_token_id
         )
 
+    # The whole decoded output is the model's answer (including reasoning); extract the final "#### <number>"
     decoded = tokenizer.decode(outputs[0], skip_special_tokens=True)
-    # 尝试从生成的响应里解析数值答案
-    # 先尝试只看 "### Response:" 之后的内容
-    gen_part = decoded.split("### Response:")[-1].strip()
-    parsed = extract_answer(gen_part) or extract_answer(decoded)
-    return gen_part, parsed
+    parsed = extract_answer(decoded)
+    return decoded, parsed
 
 if __name__ == "__main__":
 
@@ -85,7 +84,7 @@ if __name__ == "__main__":
         question = example.get("question") or example.get("Problem") or ""
         gold = extract_answer(example.get("answer", ""))  # gsm8k 的答案字段通常是 'answer'
         gen_text, pred = generate_answer(question)
-
+        
         # 使用数值比较：48 和 48.0 视为相同
         if numbers_equal(pred, gold):
             correct += 1
