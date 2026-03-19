@@ -1,3 +1,4 @@
+
 import torch
 import matplotlib.pyplot as plt
 from datasets import load_dataset
@@ -9,33 +10,36 @@ from transformers import (
 )
 from peft import LoraConfig, OFTConfig
 from trl import SFTTrainer
+import re
 
-# ======================
-# ⚙️ 配置
-# ======================
 model_name = "Qwen/Qwen3-0.6B"
 USE_OFT = True   # True = OFT, False = LoRA
 output_dir = "./outputs"
 
-# ======================
-# 📥 加载数据
-# ======================
-dataset = load_dataset("tatsu-lab/alpaca")
+
+train_dataset = load_dataset("gsm8k", "main")["train"]  # main split 里的 train
+test_dataset = load_dataset("gsm8k", "main")["test"]   # main split 里的 test
+
+def extract_answer(text):
+    match = re.search(r"####\s*(-?\d+)", text)
+    if match:
+        return match.group(1)
+    return None
 
 def format_example(example):
     return {
-        "text": f"### Instruction:\n{example['instruction']}\n\n### Response:\n{example['output']}"
+        "text": f"### Question:\n{example['question']}\n\n### Answer:\n{example['answer']}"
     }
 
-dataset = dataset["train"].map(format_example)
+full_dataset = train_dataset.map(format_example)
 
-# 划分 train / eval（关键！）
-train_dataset = dataset.select(range(45000))
-eval_dataset = dataset.select(range(45000, 46000))  # 小一点更快
+train_test = full_dataset.train_test_split(test_size=0.1, seed=42)
+train_dataset = train_test['train']  
+eval_dataset = train_test['test']  
 
-# ======================
-# ⚡ 量化（Mac 可设为 None）
-# ======================
+print(f"训练集: {len(train_dataset)}")
+print(f"验证集: {len(eval_dataset)}")
+
 bnb_config = BitsAndBytesConfig(
     load_in_4bit=True,
     bnb_4bit_quant_type="nf4",
@@ -52,9 +56,6 @@ model = AutoModelForCausalLM.from_pretrained(
 tokenizer = AutoTokenizer.from_pretrained(model_name)
 tokenizer.pad_token = tokenizer.eos_token
 
-# ======================
-# 🔧 PEFT（OFT / LoRA）
-# ======================
 if USE_OFT:
     peft_config = OFTConfig(
         oft_block_size=32,
@@ -74,9 +75,7 @@ else:
     )
     save_name = "lora_model"
 
-# ======================
-# 🏋️ 训练参数（含 eval）
-# ======================
+
 training_args = TrainingArguments(
     output_dir=f"{output_dir}/{save_name}",
     per_device_train_batch_size=4,
@@ -88,38 +87,29 @@ training_args = TrainingArguments(
     bf16=True,
     report_to="none",
 
-    # 👇 新增
-    evaluation_strategy="steps",
+    eval_strategy="steps",
     eval_steps=200,
     logging_dir=f"{output_dir}/{save_name}/logs",
 )
 
-# ======================
-# 🎯 Trainer
-# ======================
+
 trainer = SFTTrainer(
     model=model,
     train_dataset=train_dataset,
     eval_dataset=eval_dataset,
     peft_config=peft_config,
-    tokenizer=tokenizer,
+    processing_class=tokenizer,
     args=training_args,
 )
 
-# ======================
-# 🚀 训练
-# ======================
+
 trainer.train()
 
-# ======================
-# 💾 保存模型
-# ======================
+
 trainer.model.save_pretrained(f"{output_dir}/{save_name}")
 tokenizer.save_pretrained(f"{output_dir}/{save_name}")
 
-# ======================
-# 📊 提取 log 并画图
-# ======================
+
 logs = trainer.state.log_history
 
 train_steps = []
@@ -138,9 +128,7 @@ for log in logs:
     if "learning_rate" in log:
         lrs.append(log["learning_rate"])
 
-# ======================
-# 📉 Train Loss
-# ======================
+
 plt.figure()
 plt.plot(train_steps, train_losses, label="Train Loss")
 plt.xlabel("Steps")
@@ -150,9 +138,7 @@ plt.legend()
 plt.grid()
 plt.savefig(f"{output_dir}/{save_name}/train_loss.png")
 
-# ======================
-# 📉 Eval Loss
-# ======================
+
 if len(eval_losses) > 0:
     plt.figure()
     plt.plot(eval_steps, eval_losses, label="Eval Loss")
@@ -163,9 +149,6 @@ if len(eval_losses) > 0:
     plt.grid()
     plt.savefig(f"{output_dir}/{save_name}/eval_loss.png")
 
-# ======================
-# 📈 Learning Rate
-# ======================
 if len(lrs) > 0:
     plt.figure()
     plt.plot(range(len(lrs)), lrs, label="Learning Rate")

@@ -1,0 +1,27 @@
+# 训练输出目录
+
+output/
+outputs/
+./output/
+logs/
+tensorboard/
+runs/
+
+# 模型检查点（大文件）
+*.bin
+*.safetensors
+*.pt
+*.pth
+checkpoint-*/
+checkpoint_*/
+
+# Python 环境
+__pycache__/
+*.pyc
+.env
+.venv/
+
+# IDE
+.vscode/
+.idea/
+*.swp
