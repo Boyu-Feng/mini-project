@@ -5,11 +5,10 @@ import torch
 from peft import PeftModel
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-# load test split
 test_dataset = load_dataset("gsm8k", "main")["test"]
 
 def extract_answer(text):
-    # 优先匹配格式化答案 "#### 42" 或 "#### 42.0"，否则返回最后出现的数值（整数或浮点，作为后备）
+
     if not text:
         return None
     match = re.search(r"####\s*(-?\d+(?:\.\d+)?)", text)
@@ -18,12 +17,11 @@ def extract_answer(text):
     all_nums = re.findall(r"(-?\d+(?:\.\d+)?)", text)
     return all_nums[-1] if all_nums else None
 
-# 新增：按数值比较两个字符串表示的数字（支持 "48" 和 "48.0" 相等）
 def numbers_equal(a: str, b: str, tol: float = 1e-6) -> bool:
     if a is None or b is None:
         return False
     try:
-        # 去掉千分位逗号和空白
+
         as_clean = str(a).replace(",", "").strip()
         bs_clean = str(b).replace(",", "").strip()
         fa = float(as_clean)
@@ -32,20 +30,18 @@ def numbers_equal(a: str, b: str, tol: float = 1e-6) -> bool:
     except Exception:
         return False
 
-# Load base model and apply PEFT weights
 base_model = AutoModelForCausalLM.from_pretrained(
     "Qwen/Qwen3-0.6B",
     device_map="auto",
     trust_remote_code=True
 )
 
-model = PeftModel.from_pretrained(base_model, "./outputs/oft_model", device_map="auto")
-# 如果你保存了 tokenizer 在 outputs/oft_model，否则改为基础 tokenizer 名称
-tokenizer = AutoTokenizer.from_pretrained("./outputs/oft_model", trust_remote_code=True)
+model = PeftModel.from_pretrained(base_model, "./outputs/oft_model_128", device_map="auto")
 
-# 简单的生成函数：给定问题返回模型生成的完整响应文本和最终解析出的数值（如果有）
+tokenizer = AutoTokenizer.from_pretrained("./outputs/oft_model_128", trust_remote_code=True)
+
 def generate_answer(question, max_new_tokens=128, temperature=0.0):
-    # Direct English prompt: ask model to think step-by-step and ensure final line is strictly "#### <number>"
+
     prompt = (
         "You are an assistant. When answering, think step-by-step and show the full reasoning process.\n"
         "IMPORTANT: The entire model output is considered the answer, and the LAST LINE must be ONLY the numeric answer in the exact format:\n"
@@ -68,7 +64,6 @@ def generate_answer(question, max_new_tokens=128, temperature=0.0):
             pad_token_id=tokenizer.eos_token_id
         )
 
-    # The whole decoded output is the model's answer (including reasoning); extract the final "#### <number>"
     decoded = tokenizer.decode(outputs[0], skip_special_tokens=True)
     parsed = extract_answer(decoded)
     return decoded, parsed
@@ -82,22 +77,11 @@ if __name__ == "__main__":
     pbar = tqdm(test_dataset.select(range(n_eval)), desc="Evaluating")
     for i, example in enumerate(pbar):
         question = example.get("question") or example.get("Problem") or ""
-        gold = extract_answer(example.get("answer", ""))  # gsm8k 的答案字段通常是 'answer'
+        gold = extract_answer(example.get("answer", "")) 
         gen_text, pred = generate_answer(question)
-        
-        # 使用数值比较：48 和 48.0 视为相同
+  
         if numbers_equal(pred, gold):
             correct += 1
 
-        # 可选：快速打印前几条示例用于调试（保持进度条整洁）
-        if i < 5:
-            tqdm.write(f"\n--- Example {i} ---")
-            tqdm.write(f"Q: {question}")
-            tqdm.write(f"Generated: {gen_text}")
-            tqdm.write(f"Parsed: {pred}  Gold: {gold}")
-
-        # 更新进度条后缀显示当前准确率
-        pbar.set_postfix({"acc": f"{correct/(i+1):.4f}"})
- 
     acc = correct / n_eval if n_eval > 0 else 0.0
     print(f"\nEvaluated {n_eval} examples. Accuracy: {acc:.4f}")

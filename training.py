@@ -13,12 +13,12 @@ from trl import SFTTrainer
 import re
 
 model_name = "Qwen/Qwen3-0.6B"
-USE_OFT = True   # True = OFT, False = LoRA
+USE_OFT = True  
 output_dir = "./outputs"
 
 
-train_dataset = load_dataset("gsm8k", "main")["train"]  # main split 里的 train
-test_dataset = load_dataset("gsm8k", "main")["test"]   # main split 里的 test
+train_dataset = load_dataset("gsm8k", "main")["train"] 
+test_dataset = load_dataset("gsm8k", "main")["test"]  
 
 def extract_answer(text):
     match = re.search(r"####\s*(-?\d+)", text)
@@ -58,13 +58,13 @@ tokenizer.pad_token = tokenizer.eos_token
 
 if USE_OFT:
     peft_config = OFTConfig(
-        oft_block_size=32,
+        oft_block_size=128,
         target_modules="all-linear",
         use_cayley_neumann=True,
         bias="none",
         task_type="CAUSAL_LM",
     )
-    save_name = "oft_model"
+    save_name = "oft_model_128"
 else:
     peft_config = LoraConfig(
         r=8,
